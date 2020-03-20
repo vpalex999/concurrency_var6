@@ -1,0 +1,8 @@
+[
+    {
+        "elements": {
+            "elements_1": {"number": 10, "equipment_list": ["machine_1", "machine_2", "machine_3"]},
+            "elements_2": {"number": 5, "equipment_list": ["machine_1", "machine_3"]}
+        }
+    }
+]
