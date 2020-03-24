@@ -1,8 +1,15 @@
 [
-    {
-        "elements": {
-            "elements_1": {"number": 10, "equipment_list": ["machine_1", "machine_2", "machine_3"]},
-            "elements_2": {"number": 5, "equipment_list": ["machine_1", "machine_3"]}
-        }
+    {   "PA": ["LCFS", "nonpreemptive"],
+        "QT": "2",
+        "MaxT": "1",
+        "MaxP": "10",
+        "NR":[
+                {"type": "machine", "number": 3, "attr": {"name": "machine_1", "max_workers": 5}},
+                {"type": "machine", "number": 2, "attr": {"name": "machine_2", "max_workers": 10}},
+                {"type": "machine", "number": 1, "attr": {"name": "machine_3", "max_workers": 2}},
+                {"type": "element", "number": 10, "attr": {"name": "el_1", "equipment_list": ["machine_1", "machine_2", "machine_3"]}},
+                {"type": "element", "number": 5, "attr": {"name": "el_2", "equipment_list": ["machine_1", "machine_3"]}}
+            ],
+        "NP": {}
     }
 ]
