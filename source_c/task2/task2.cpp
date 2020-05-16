@@ -48,19 +48,22 @@ PT - Пауза после обработки каждого элемента м
 #include <string>
 #include <iostream>
 #include <vector>
+#include <deque>
 #include <thread>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <atomic>
+#include <condition_variable>
 
 #define err_exit_sysV(str){ perror(str); std::cerr << std::endl; exit(EXIT_FAILURE);}
 
 int PA;
 int MONTH;
 const int ARR_SIZE = 8;
-const int M = 3;
-const int PT = 1000; 
+const int M = 8;
+const int PT = 2000; 
 
 
 std::mutex mut_cout;
@@ -134,6 +137,7 @@ std::vector<Student> get_test_data()
     return arr_st;
 }
 
+// Семафор
 class MySem{
     private:
         int count;
@@ -167,6 +171,44 @@ class MySem{
             std::lock_guard<std::mutex> lk(mut);
             return count;
         } 
+};
+
+
+class MySafeQueue
+{
+    private:
+        std::deque <Student> arr_st;
+        mutable std::mutex mut;
+    public:
+        std::atomic_bool is_done;
+        MySafeQueue(){}
+        MySafeQueue(const std::vector<Student>& st){
+            for(const auto& it: st)
+                arr_st.push_back(it);
+        }
+
+        bool try_pop(Student& st)
+        {
+            std::lock_guard<std::mutex> lk(mut);
+            if(arr_st.empty())
+                return false;
+
+            st = arr_st.front();
+            arr_st.pop_front();
+            return true;
+        }
+
+        void push(Student st)
+        {
+            std::lock_guard<std::mutex> lk(mut);
+            arr_st.push_back(st);
+        }
+
+        bool empty()
+        {
+            std::lock_guard<std::mutex> lk(mut);
+            return arr_st.empty();
+        }
 };
 
 
@@ -215,6 +257,33 @@ void thread_job_var2(std::vector<Student>& arr_st, std::vector<MySem>& vsem, int
 }
 
 
+void thread_job_var4(MySafeQueue& myqueue, int month)
+{   
+
+    // {std::cout << std::this_thread::get_id() << std::endl;}
+
+    while(true)
+    {
+        if(myqueue.is_done and myqueue.empty())
+            return;
+        Student st;
+        if(myqueue.try_pop(st))
+        {
+            if(st.month == month)
+            {   
+                std::lock_guard<std::mutex> lk(mut_cout);
+                std::cout << std::this_thread::get_id() << ": ";
+                st.display();
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(PT));
+        }
+        else
+        {
+            std::this_thread::yield();
+        }
+    }
+}
+
 // 1. При помощи массива из M потоков (M ≤ N), используя для синхронизации объект ядра – семафор.
 void run_var1(std::vector<Student>& arr_st, int month)
 {
@@ -253,14 +322,33 @@ void run_var2(std::vector<Student>& arr_st, int month)
 // 3. При помощи пула из M потоков (M ≤ N), используя системный пул потоков или асинхронные потоки ввода/вывода.
 void run_var3(std::vector<Student>& arr_st, int month)
 {
-
 }
+
 
 
 // 4. При помощи пула из M потоков (M ≤ N), моделируя его при помощи сети Петри.
 void run_var4(std::vector<Student>& arr_st, int month)
 {
-    
+    MySafeQueue myqueue;
+
+    std::vector<std::thread> v_th;
+
+    for(int j=0; j<M; j++)
+    {
+        v_th.push_back(std::thread(thread_job_var4, std::ref(myqueue), month));
+    }
+
+    // имитация заполнения очереди
+    for(const auto stud:arr_st)
+    {
+        myqueue.push(stud);
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+
+    myqueue.is_done = true;
+
+    for(auto& th: v_th)
+        th.join();
 }
 
 int main(){

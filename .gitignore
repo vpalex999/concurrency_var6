@@ -2,3 +2,4 @@
 env
 .mypy_*
 __pycache__
+a.out
