@@ -59,11 +59,13 @@ PT - Пауза после обработки каждого элемента м
 
 #define err_exit_sysV(str){ perror(str); std::cerr << std::endl; exit(EXIT_FAILURE);}
 
-int PA;
-int MONTH;
-const int ARR_SIZE = 8;
-const int M = 8;
-const int PT = 2000; 
+int PA;                         // способ обработки массива
+int MONTH;                      // заданный месяц
+const int ARR_SIZE = 8;         // размер массива элементов
+const int M = 8;                // Количество параллельных потоков (если 0, то принимается равным числу процессорных ядер в системе)
+const int PT = 2000;            //Пауза после обработки каждого элемента массива, мс
+const int POLL_SIZE = 3;        //размер пула потоков
+const int PUSH_INTERVAL = 500;  // интервал добавления объектов в очередь мс.
 
 
 std::mutex mut_cout;
@@ -85,39 +87,16 @@ struct Student{
     }
 };
 
-// Семафор ядра sysV
-int get_sysv_sem()
+// Работа с записью студента
+void work_with_student(Student& st, const int& month)
 {
-    const std::string f_key = "/tmp/sem.key";
-
-    key_t key = ftok(f_key.c_str(), 1);
-    if(key == -1)
-        err_exit_sysV(("Cannot create key for System V IPC: " + f_key).c_str());
-
-    
-
-    int semid = semget(key, ARR_SIZE, IPC_CREAT|0666);
-    if(semid == -1)
-        err_exit_sysV("Cannot create semaphores");
-
-    struct sembuf mysops[ARR_SIZE];
-
-    // инициализация семафоров
-    for(short j=0; j<ARR_SIZE;j++)
+    if(st.month == month)
     {
-        mysops[j].sem_num = j;
-        mysops[j].sem_op = 2;
-        mysops[j].sem_flg = IPC_NOWAIT;
+        std::lock_guard<std::mutex> lk(mut_cout);   // авто-блокировка потока вывода
+        std::cout << std::this_thread::get_id() << ": ";    // вывод информации на консоль
+        st.display();
     }
-
-    int stat_sem = semop(semid, mysops, ARR_SIZE);
-    if(stat_sem == -1)
-    {
-        // удаление семафоров
-        semctl(semid, IPC_RMID, 0); // удаление сегмента общей памяти
-        err_exit_sysV("Cannot initialize semaphore");
-    }
-    return semid;
+    std::this_thread::sleep_for(std::chrono::milliseconds(PT)); // Пауза после обработки каждого элемента массива
 }
 
 // тестовые данные
@@ -135,6 +114,40 @@ std::vector<Student> get_test_data()
     arr_st.push_back({"student8", "c-45", 1964, 3, 2, 87});
 
     return arr_st;
+}
+
+// получить семафор ядра systemV
+int get_sysv_sem(int num_sem, int sem_op, int flag)
+{
+    const std::string f_key = "/tmp/sem.key";
+
+    key_t key = ftok(f_key.c_str(), 1);
+    if(key == -1)
+        err_exit_sysV(("Cannot create key for System V IPC: " + f_key).c_str());
+
+    int semid = semget(key, num_sem, IPC_CREAT|0666);
+    if(semid == -1)
+        err_exit_sysV("Cannot create semaphores");
+
+    struct sembuf mysops[num_sem];
+
+    // инициализация семафоров
+    for(short j=0; j<num_sem;j++)
+    {
+        mysops[j].sem_num = j;
+        mysops[j].sem_op = sem_op;
+        mysops[j].sem_flg = flag;
+    }
+
+
+    int stat_sem = semop(semid, mysops, num_sem);
+    if(stat_sem == -1)
+    {
+        // удаление семафоров
+        semctl(semid, IPC_RMID, 0); // удаление сегмента общей памяти
+        err_exit_sysV("Cannot initialize semaphore");
+    }
+    return semid;
 }
 
 // Семафор
@@ -173,7 +186,7 @@ class MySem{
         } 
 };
 
-
+// безопасная очередь
 class MySafeQueue
 {
     private:
@@ -187,7 +200,7 @@ class MySafeQueue
                 arr_st.push_back(it);
         }
 
-        bool try_pop(Student& st)
+        bool try_pop(Student& st)   // неблокирующее получение элемента очереди
         {
             std::lock_guard<std::mutex> lk(mut);
             if(arr_st.empty())
@@ -214,72 +227,93 @@ class MySafeQueue
 
 void thread_job_var1(std::vector<Student>& arr_st, int& semid, int month)
 {
+    // структура управления семафором
     struct sembuf mybuf;
 
     mybuf.sem_op = -2;
 	mybuf.sem_flg = IPC_NOWAIT;
 
-    for(int j=0; j<ARR_SIZE; j++)
+    for(int j=0; j<ARR_SIZE; j++)   // Для каждого элемента массива
     {
-        mybuf.sem_num = j;
+        mybuf.sem_num = j;  // выбрать семафор элемента
         
-        int stat_sem = semop(semid, &mybuf, 1);
+        int stat_sem = semop(semid, &mybuf, 1); // занять семафор элемента неблокируемым способом
 
         if(stat_sem == -1)
-            continue;
-        if(arr_st[j].month == month)
-        {   
-            std::lock_guard<std::mutex> lk(mut_cout);
-            std::cout << std::this_thread::get_id() << ": ";
-            arr_st[j].display();
+            continue;   // семафор занят, идём дальше
+        else
+        {  
+            work_with_student(arr_st[j], month);
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(PT));
     }
 }
 
 
+
 void thread_job_var2(std::vector<Student>& arr_st, std::vector<MySem>& vsem, int month)
 {
-    for(int j=0; j<ARR_SIZE; j++)
+    for(int j=0; j<ARR_SIZE; j++)   // Для каждого элемента массива
     {
-        int stat_sem = vsem[j].trywait();
+        int stat_sem = vsem[j].trywait();   // занять семафор элемента неблокируемым способом
 
-        if(stat_sem == -1)
-            continue;
-        if(arr_st[j].month == month)
+        if(stat_sem == -1)  
+            continue;   // семафор занят, идём дальше
+        else
         {   
-            std::lock_guard<std::mutex> lk(mut_cout);
-            std::cout << std::this_thread::get_id() << ": ";
-            arr_st[j].display();
+            work_with_student(arr_st[j], month);
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(PT));
+    }
+}
+
+
+void thread_job_var3(MySafeQueue& myqueue, int& semid, int month)
+{
+    // структура управления семафором
+    struct sembuf mybuf;
+
+    mybuf.sem_num = 0;
+	mybuf.sem_flg = 0;
+
+    while(true)
+    {
+        // Проверка на завершение работы потока
+        if(myqueue.is_done and myqueue.empty())
+            return;
+        
+        mybuf.sem_op = -1;
+
+        // занять семафор
+        semop(semid, &mybuf, 1);    
+        
+        Student st;
+        if(myqueue.try_pop(st)) // получить объект из очереди
+        {
+            work_with_student(st, month);
+        }
+        
+        // освободить семафор
+        mybuf.sem_op = 1;
+        semop(semid, &mybuf, 1);
     }
 }
 
 
 void thread_job_var4(MySafeQueue& myqueue, int month)
 {   
-
-    // {std::cout << std::this_thread::get_id() << std::endl;}
-
     while(true)
     {
+        // Проверка на завершение работы потока
         if(myqueue.is_done and myqueue.empty())
             return;
+
         Student st;
-        if(myqueue.try_pop(st))
+        if(myqueue.try_pop(st)) // неблокируемый доступ к очереди
         {
-            if(st.month == month)
-            {   
-                std::lock_guard<std::mutex> lk(mut_cout);
-                std::cout << std::this_thread::get_id() << ": ";
-                st.display();
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(PT));
+            work_with_student(st, month);
         }
         else
         {
-            std::this_thread::yield();
+            std::this_thread::yield();  // заснуть
         }
     }
 }
@@ -287,7 +321,7 @@ void thread_job_var4(MySafeQueue& myqueue, int month)
 // 1. При помощи массива из M потоков (M ≤ N), используя для синхронизации объект ядра – семафор.
 void run_var1(std::vector<Student>& arr_st, int month)
 {
-    int semid = get_sysv_sem();
+    int semid = get_sysv_sem(ARR_SIZE, 2, IPC_NOWAIT);
 
         std::vector<std::thread> v_th;
 
@@ -322,6 +356,31 @@ void run_var2(std::vector<Student>& arr_st, int month)
 // 3. При помощи пула из M потоков (M ≤ N), используя системный пул потоков или асинхронные потоки ввода/вывода.
 void run_var3(std::vector<Student>& arr_st, int month)
 {
+    MySafeQueue myqueue;
+
+    int semid = get_sysv_sem(1, POLL_SIZE, 0);  // семафор пула потоков
+
+        std::vector<std::thread> v_th;
+
+        for(int j=0; j<M; j++)
+        {
+            v_th.push_back(std::thread(thread_job_var3, std::ref(myqueue), std::ref(semid), month));
+        }
+
+        // имитация заполнения очереди
+        for(const auto stud:arr_st)
+        {
+            myqueue.push(stud);
+            std::this_thread::sleep_for(std::chrono::milliseconds(PUSH_INTERVAL));
+        }
+
+        myqueue.is_done = true;
+
+        for(auto& th: v_th)
+            th.join();
+
+        // удаление семафоров
+        semctl(semid, IPC_RMID, 0); // удаление сегмента общей памяти
 }
 
 
@@ -342,7 +401,7 @@ void run_var4(std::vector<Student>& arr_st, int month)
     for(const auto stud:arr_st)
     {
         myqueue.push(stud);
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        std::this_thread::sleep_for(std::chrono::milliseconds(PUSH_INTERVAL));
     }
 
     myqueue.is_done = true;
