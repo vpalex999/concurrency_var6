@@ -62,11 +62,10 @@ PT - Пауза после обработки каждого элемента м
 
 int PA;                         // способ обработки массива
 int MONTH;                      // заданный месяц
-const int ARR_SIZE = 8;         // размер массива элементов
-const int M = 8;                // Количество параллельных потоков (если 0, то принимается равным числу процессорных ядер в системе)
-const int PT = 2000;            //Пауза после обработки каждого элемента массива, мс
-const int POLL_SIZE = 8;        //размер пула потоков
-const int PUSH_INTERVAL = 0;  // интервал добавления объектов в очередь мс.
+int ARR_SIZE = 8;         // размер массива элементов
+int M = 8;                // Количество параллельных потоков (если 0, то принимается равным числу процессорных ядер в системе)
+int PT = 1000;            //Пауза после обработки каждого элемента массива, мс
+int POLL_SIZE = 8;        //размер пула потоков
 
 
 std::mutex mut_cout;
@@ -104,7 +103,7 @@ void work_with_student(Student& st, const int& month)
 std::vector<Student> get_test_data()
 {
     std::vector<Student> arr_st;
-    // for(int j=0; j<ARR_SIZE; j++)
+
     arr_st.push_back({"student1", "c-172", 1974, 3, 8, 22});
     arr_st.push_back({"student2", "c-172", 1975, 3, 29, 136});
     arr_st.push_back({"student4", "c-178", 1989, 3, 25, 47});
@@ -250,7 +249,6 @@ void thread_job_var1(std::vector<Student>& arr_st, int& semid, int month)
 }
 
 
-
 void thread_job_var2(std::vector<Student>& arr_st, std::vector<MySem>& vsem, int month)
 {
     for(int j=0; j<ARR_SIZE; j++)   // Для каждого элемента массива
@@ -278,7 +276,7 @@ void thread_job_var3(MySafeQueue& myqueue, int& semid, int month)
     while(true)
     {
         // Проверка на завершение работы потока
-        if(myqueue.is_done and myqueue.empty())
+        if(myqueue.empty())
             return;
         
         mybuf.sem_op = -1;
@@ -304,9 +302,9 @@ void thread_job_var4(MySafeQueue& myqueue, int month)
     while(true)
     {
         // Проверка на завершение работы потока
-        if(myqueue.is_done and myqueue.empty())
+        if(myqueue.empty())
             return;
-
+        
         Student st;
         if(myqueue.try_pop(st)) // неблокируемый доступ к очереди
         {
@@ -359,29 +357,24 @@ void run_var3(std::vector<Student>& arr_st, int month)
 {
     MySafeQueue myqueue;
 
+    // заполнение очереди
+    for(const auto stud:arr_st)
+        myqueue.push(stud);
+
     int semid = get_sysv_sem(1, POLL_SIZE, 0);  // семафор пула потоков
 
-        std::vector<std::thread> v_th;
+    std::vector<std::thread> v_th;
 
-        for(int j=0; j<M; j++)
-        {
-            v_th.push_back(std::thread(thread_job_var3, std::ref(myqueue), std::ref(semid), month));
-        }
+    for(int j=0; j<M; j++)
+    {
+        v_th.push_back(std::thread(thread_job_var3, std::ref(myqueue), std::ref(semid), month));
+    }
 
-        // имитация заполнения очереди
-        for(const auto stud:arr_st)
-        {
-            myqueue.push(stud);
-            std::this_thread::sleep_for(std::chrono::milliseconds(PUSH_INTERVAL));
-        }
+    for(auto& th: v_th)
+        th.join();
 
-        myqueue.is_done = true;
-
-        for(auto& th: v_th)
-            th.join();
-
-        // удаление семафоров
-        semctl(semid, IPC_RMID, 0); // удаление сегмента общей памяти
+    // удаление семафоров
+    semctl(semid, IPC_RMID, 0); // удаление сегмента общей памяти
 }
 
 
@@ -391,6 +384,10 @@ void run_var4(std::vector<Student>& arr_st, int month)
 {
     MySafeQueue myqueue;
 
+    // заполнение очереди
+    for(const auto stud:arr_st)
+        myqueue.push(stud);
+
     std::vector<std::thread> v_th;
 
     for(int j=0; j<M; j++)
@@ -398,12 +395,6 @@ void run_var4(std::vector<Student>& arr_st, int month)
         v_th.push_back(std::thread(thread_job_var4, std::ref(myqueue), month));
     }
 
-    // имитация заполнения очереди
-    for(const auto stud:arr_st)
-    {
-        myqueue.push(stud);
-        std::this_thread::sleep_for(std::chrono::milliseconds(PUSH_INTERVAL));
-    }
 
     myqueue.is_done = true;
 
@@ -412,14 +403,13 @@ void run_var4(std::vector<Student>& arr_st, int month)
 }
 
 
-int serial_processing(std::vector<Student>& arr_st, int month)
+void serial_processing(std::vector<Student>& arr_st, int month)
 {
+    std::cout << "Run serial processing...\n";
+
     auto start_time = std::chrono::steady_clock::now();
     for(auto& st: arr_st)
-    {
         work_with_student(st, month);
-        std::this_thread::sleep_for(std::chrono::milliseconds(PUSH_INTERVAL));
-    }
     
     auto stop_time = std::chrono::steady_clock::now();
     std::cout << "TL: " << std::chrono::duration_cast<std::chrono::milliseconds>(stop_time - start_time).count() << " msec." << std::endl;
@@ -427,14 +417,15 @@ int serial_processing(std::vector<Student>& arr_st, int month)
 
 int main(){
 
-    std::vector<Student> arr_st = get_test_data();
 
     std::cout << "Choose the variant and month ([1,2,3,4] [1-12]): ";
     std::cin >> PA;
     std::cin >> MONTH;
 
-    std::vector<Student> arr_st_s = get_test_data();
-    serial_processing(arr_st_s, MONTH);
+    std::vector<Student> arr_st = get_test_data();
+    serial_processing(arr_st, MONTH);
+
+    std::cout << "Run parallel processing...\n";
 
     auto start_time = std::chrono::steady_clock::now();
 
