@@ -57,6 +57,7 @@ PT - Пауза после обработки каждого элемента м
 #include <atomic>
 #include <condition_variable>
 
+
 #define err_exit_sysV(str){ perror(str); std::cerr << std::endl; exit(EXIT_FAILURE);}
 
 int PA;                         // способ обработки массива
@@ -64,8 +65,8 @@ int MONTH;                      // заданный месяц
 const int ARR_SIZE = 8;         // размер массива элементов
 const int M = 8;                // Количество параллельных потоков (если 0, то принимается равным числу процессорных ядер в системе)
 const int PT = 2000;            //Пауза после обработки каждого элемента массива, мс
-const int POLL_SIZE = 3;        //размер пула потоков
-const int PUSH_INTERVAL = 500;  // интервал добавления объектов в очередь мс.
+const int POLL_SIZE = 8;        //размер пула потоков
+const int PUSH_INTERVAL = 0;  // интервал добавления объектов в очередь мс.
 
 
 std::mutex mut_cout;
@@ -410,6 +411,20 @@ void run_var4(std::vector<Student>& arr_st, int month)
         th.join();
 }
 
+
+int serial_processing(std::vector<Student>& arr_st, int month)
+{
+    auto start_time = std::chrono::steady_clock::now();
+    for(auto& st: arr_st)
+    {
+        work_with_student(st, month);
+        std::this_thread::sleep_for(std::chrono::milliseconds(PUSH_INTERVAL));
+    }
+    
+    auto stop_time = std::chrono::steady_clock::now();
+    std::cout << "TL: " << std::chrono::duration_cast<std::chrono::milliseconds>(stop_time - start_time).count() << " msec." << std::endl;
+}
+
 int main(){
 
     std::vector<Student> arr_st = get_test_data();
@@ -417,6 +432,11 @@ int main(){
     std::cout << "Choose the variant and month ([1,2,3,4] [1-12]): ";
     std::cin >> PA;
     std::cin >> MONTH;
+
+    std::vector<Student> arr_st_s = get_test_data();
+    serial_processing(arr_st_s, MONTH);
+
+    auto start_time = std::chrono::steady_clock::now();
 
     switch (PA)
     {
@@ -440,6 +460,10 @@ int main(){
         std::cout << "Selected the unknown variant\n"; 
         break;
     }
+
+    auto stop_time = std::chrono::steady_clock::now();
+    std::cout << "TP: " << std::chrono::duration_cast<std::chrono::milliseconds>(stop_time - start_time).count() << " msec." << std::endl;
+
 
     return 0;
 }
