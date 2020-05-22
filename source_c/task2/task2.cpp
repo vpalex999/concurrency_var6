@@ -19,8 +19,8 @@
 4. При помощи пула из M потоков (M ≤ N), моделируя его при помощи
 сети Петри.
 
-Структура содержит анкетные данные студентов (ФИО,
-группа, дата рождения, номер комнаты в общежитии).
+Структура содержит анкетные данные студентов
+(ФИО, группа, дата рождения, номер комнаты в общежитии).
 
 
 PA - Выбранный способ обработки массива
@@ -44,28 +44,29 @@ PT - Пауза после обработки каждого элемента м
 #include <sys/ipc.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <time.h>
 
 #include <string>
+#include <sstream>
 #include <iostream>
 #include <vector>
 #include <deque>
 #include <thread>
 #include <chrono>
-#include <cstdlib>
-#include <cstring>
 #include <mutex>
 #include <atomic>
-#include <condition_variable>
+#include <fstream>
 
 
 #define err_exit_sysV(str){ perror(str); std::cerr << std::endl; exit(EXIT_FAILURE);}
 
+const std::string F_KEY = "sem.key";
 int PA;                         // способ обработки массива
 int MONTH;                      // заданный месяц
-int ARR_SIZE = 8;         // размер массива элементов
-int M = 8;                // Количество параллельных потоков (если 0, то принимается равным числу процессорных ядер в системе)
-int PT = 1000;            //Пауза после обработки каждого элемента массива, мс
-int POLL_SIZE = 8;        //размер пула потоков
+int N;         // размер массива элементов
+int M;                // Количество параллельных потоков (если 0, то принимается равным числу процессорных ядер в системе)
+int PT;            //Пауза после обработки каждого элемента массива, мс
+int POLL_SIZE;        //размер пула потоков
 
 
 std::mutex mut_cout;
@@ -81,6 +82,49 @@ struct Student{
         int room_number;    // номер комнаты в общежитии
             Student(){};
             Student(std::string f, std::string g, int y, int m, int d, int r):fio(f), group(g), year(y), month(m), day(d), room_number(r){};
+            Student(std::string str){
+
+                
+                std::istringstream iss(str);
+                std::string w;
+                std::vector<std::string> vs;
+                // std::cout << str << std::endl;
+
+                while(!iss.eof())
+                {
+
+                    if(getline(iss,w,','))
+                        {
+                            vs.push_back(w);
+                        }
+                }
+
+                fio = vs[0];
+                group = vs[1];
+
+                year = std::atoi(vs[2].c_str());
+                if(!year)
+                    year = Random(1960, 2000);
+                
+                month = std::atoi(vs[3].c_str());
+                if(!month)
+                    month = Random(1, 12);
+
+                day = std::atoi(vs[4].c_str());
+                if(!day)
+                    day = Random(1, 30);
+
+                if(vs.size() != 6)
+                    room_number = Random(1, 200);
+                else
+                    room_number = std::atoi(vs[5].c_str());
+                if(!room_number)
+                    room_number = Random(1, 200);
+            }
+
+        int Random(int min, int max) {
+            return min + rand() % (max - min);
+        }
 
         void display(){
             std::cout << fio << ", " << group << ", " << year << ", " << month << ", " << day << ", " << room_number << "\n";
@@ -99,31 +143,13 @@ void work_with_student(Student& st, const int& month)
     std::this_thread::sleep_for(std::chrono::milliseconds(PT)); // Пауза после обработки каждого элемента массива
 }
 
-// тестовые данные
-std::vector<Student> get_test_data()
-{
-    std::vector<Student> arr_st;
-
-    arr_st.push_back({"student1", "c-172", 1974, 3, 8, 22});
-    arr_st.push_back({"student2", "c-172", 1975, 3, 29, 136});
-    arr_st.push_back({"student4", "c-178", 1989, 3, 25, 47});
-    arr_st.push_back({"student3", "c-172", 1987, 3, 5, 46});
-    arr_st.push_back({"student5", "c-111", 1989, 3, 30, 48});
-    arr_st.push_back({"student6", "c-123", 1990, 3, 2, 246});
-    arr_st.push_back({"student7", "c-1345", 1995, 3, 17, 88});
-    arr_st.push_back({"student8", "c-45", 1964, 3, 2, 87});
-
-    return arr_st;
-}
-
 // получить семафор ядра systemV
 int get_sysv_sem(int num_sem, int sem_op, int flag)
 {
-    const std::string f_key = "/tmp/sem.key";
 
-    key_t key = ftok(f_key.c_str(), 1);
+    key_t key = ftok(F_KEY.c_str(), 1);
     if(key == -1)
-        err_exit_sysV(("Cannot create key for System V IPC: " + f_key).c_str());
+        err_exit_sysV(("Cannot create key for System V IPC: " + F_KEY).c_str());
 
     int semid = semget(key, num_sem, IPC_CREAT|0666);
     if(semid == -1)
@@ -233,7 +259,7 @@ void thread_job_var1(std::vector<Student>& arr_st, int& semid, int month)
     mybuf.sem_op = -2;
 	mybuf.sem_flg = IPC_NOWAIT;
 
-    for(int j=0; j<ARR_SIZE; j++)   // Для каждого элемента массива
+    for(int j=0; j<N; j++)   // Для каждого элемента массива
     {
         mybuf.sem_num = j;  // выбрать семафор элемента
         
@@ -251,7 +277,7 @@ void thread_job_var1(std::vector<Student>& arr_st, int& semid, int month)
 
 void thread_job_var2(std::vector<Student>& arr_st, std::vector<MySem>& vsem, int month)
 {
-    for(int j=0; j<ARR_SIZE; j++)   // Для каждого элемента массива
+    for(int j=0; j<N; j++)   // Для каждого элемента массива
     {
         int stat_sem = vsem[j].trywait();   // занять семафор элемента неблокируемым способом
 
@@ -320,7 +346,9 @@ void thread_job_var4(MySafeQueue& myqueue, int month)
 // 1. При помощи массива из M потоков (M ≤ N), используя для синхронизации объект ядра – семафор.
 void run_var1(std::vector<Student>& arr_st, int month)
 {
-    int semid = get_sysv_sem(ARR_SIZE, 2, IPC_NOWAIT);
+    std::cout << "Run case 1...\n";
+
+    int semid = get_sysv_sem(N, 2, IPC_NOWAIT);
 
         std::vector<std::thread> v_th;
 
@@ -339,7 +367,9 @@ void run_var1(std::vector<Student>& arr_st, int month)
 // 2. При помощи массива из M потоков (M ≤ N), используя для синхронизации сеть Петри, моделирующую семафор.
 void run_var2(std::vector<Student>& arr_st, int month)
 {
-    std::vector<MySem> vsem(ARR_SIZE);
+    std::cout << "Run case 2...\n";
+
+    std::vector<MySem> vsem(N);
 
     std::vector<std::thread> v_th;
 
@@ -355,6 +385,8 @@ void run_var2(std::vector<Student>& arr_st, int month)
 // 3. При помощи пула из M потоков (M ≤ N), используя системный пул потоков или асинхронные потоки ввода/вывода.
 void run_var3(std::vector<Student>& arr_st, int month)
 {
+    std::cout << "Run case 3...\n";
+
     MySafeQueue myqueue;
 
     // заполнение очереди
@@ -382,6 +414,8 @@ void run_var3(std::vector<Student>& arr_st, int month)
 // 4. При помощи пула из M потоков (M ≤ N), моделируя его при помощи сети Петри.
 void run_var4(std::vector<Student>& arr_st, int month)
 {
+    std::cout << "Run case 4...\n";
+
     MySafeQueue myqueue;
 
     // заполнение очереди
@@ -402,7 +436,7 @@ void run_var4(std::vector<Student>& arr_st, int month)
         th.join();
 }
 
-
+// Последовательная обработка массива данных
 void serial_processing(std::vector<Student>& arr_st, int month)
 {
     std::cout << "Run serial processing...\n";
@@ -415,15 +449,73 @@ void serial_processing(std::vector<Student>& arr_st, int month)
     std::cout << "TL: " << std::chrono::duration_cast<std::chrono::milliseconds>(stop_time - start_time).count() << " msec." << std::endl;
 }
 
-int main(){
+// парсинг файла с входными данными
+std::vector<Student> load_and_set(std::string filename)
+{
+    std::vector<Student> arr_st;
+    std::string str;
 
+    std::ifstream infile (filename);
 
-    std::cout << "Choose the variant and month ([1,2,3,4] [1-12]): ";
-    std::cin >> PA;
-    std::cin >> MONTH;
+    if(!infile)
+    {
+        std::cout << "File cannot be opened: " << filename << "\n";
+        std::cout << "Error code: " <<  infile.rdstate() << "\n";
+        exit(-1);
+    }
 
-    std::vector<Student> arr_st = get_test_data();
-    serial_processing(arr_st, MONTH);
+    while (!infile.eof())
+    {
+        srand(time(0));
+
+        infile >> str;
+        if(str == "PA")
+            infile >> PA;
+        else if(str == "M")
+        {
+            infile >> M;
+            if(M == 0)
+                M = std::thread::hardware_concurrency();
+            std::cout << "Set to hardware concurrency: " << M << "\n";
+        }
+        else if(str == "MONTH")
+            infile >> MONTH;
+        else if(str == "PT")
+            infile >> PT;
+        else if(str == "POLL_SIZE")
+            infile >> POLL_SIZE;
+        else if(str == "N")
+        {
+            infile >> N;
+            for(int j=0; j<=N;j++)
+            {
+                getline(infile, str);
+                if(str.size() == 0)
+                    continue;
+                arr_st.push_back({str});
+            }
+        }
+    }
+    infile.close();
+
+    return arr_st;
+}
+
+int main(int argc, char* argv[]){
+
+    std::vector<Student> arr_st;
+
+    if(argc == 1)
+        arr_st = load_and_set("config2.txt");
+    else
+        arr_st = load_and_set(argv[1]);
+
+    if(PA > 4 or PA < 1)
+    {
+        std::cout << "Selected the unknown variant PA = " << PA << "\n";
+        std::cout << "Exit\n"; 
+        exit(-1);
+    }
 
     std::cout << "Run parallel processing...\n";
 
@@ -447,14 +539,11 @@ int main(){
         run_var4(arr_st, MONTH);
         break;
     }
-    default:
-        std::cout << "Selected the unknown variant\n"; 
-        break;
     }
 
     auto stop_time = std::chrono::steady_clock::now();
     std::cout << "TP: " << std::chrono::duration_cast<std::chrono::milliseconds>(stop_time - start_time).count() << " msec." << std::endl;
 
-
+    serial_processing(arr_st, MONTH);
     return 0;
 }

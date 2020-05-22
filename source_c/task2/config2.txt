@@ -1,0 +1,14 @@
+PA 1
+M 8
+MONTH 3
+PT 1000
+POLL_SIZE 8
+N 8
+student1,c-171,1988,3,8,202
+student2,c-172,1975,3,29,136
+student4,c-178,1989,3,25,47
+student3,c-172,1987,3,5,46
+student5,c-111,1989,3,30,48
+student6,c-123,1990,3,2,246
+student7,c-134,1995,3,17,88
+student8,c-45,1964,3,2,87
