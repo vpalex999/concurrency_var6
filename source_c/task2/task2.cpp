@@ -60,13 +60,13 @@ PT - Пауза после обработки каждого элемента м
 
 #define err_exit_sysV(str){ perror(str); std::cerr << std::endl; exit(EXIT_FAILURE);}
 
-const std::string F_KEY = "sem.key";
-int PA;                         // способ обработки массива
-int MONTH;                      // заданный месяц
-int N;         // размер массива элементов
-int M;                // Количество параллельных потоков (если 0, то принимается равным числу процессорных ядер в системе)
-int PT;            //Пауза после обработки каждого элемента массива, мс
-int POLL_SIZE;        //размер пула потоков
+const std::string F_KEY = "sem.key";    // Файловый ключ для коммуникации процессов ядра в стандарте SysV IPC Unix
+int PA;         // способ обработки массива
+int MONTH;      // заданный месяц
+int N;          // размер массива элементов
+int M;          // Количество параллельных потоков (если 0, то принимается равным числу процессорных ядер в системе)
+int PT;         //Пауза после обработки каждого элемента массива, мс
+int POLL_SIZE;  //размер пула потоков
 
 
 std::mutex mut_cout;
@@ -83,20 +83,14 @@ struct Student{
             Student(){};
             Student(std::string f, std::string g, int y, int m, int d, int r):fio(f), group(g), year(y), month(m), day(d), room_number(r){};
             Student(std::string str){
-
-                
                 std::istringstream iss(str);
                 std::string w;
                 std::vector<std::string> vs;
-                // std::cout << str << std::endl;
 
                 while(!iss.eof())
                 {
-
                     if(getline(iss,w,','))
-                        {
-                            vs.push_back(w);
-                        }
+                        vs.push_back(w);
                 }
 
                 fio = vs[0];
@@ -131,6 +125,59 @@ struct Student{
     }
 };
 
+
+// парсинг файла с входными данными
+std::vector<Student> load_and_set(std::string filename)
+{
+    std::vector<Student> arr_st;
+    std::string str;
+
+    std::ifstream infile (filename);
+
+    if(!infile)
+    {
+        std::cout << "File cannot be opened: " << filename << "\n";
+        std::cout << "Error code: " <<  infile.rdstate() << "\n";
+        exit(-1);
+    }
+
+    while (!infile.eof())
+    {
+        srand(time(0));
+
+        infile >> str;
+        if(str == "PA")
+            infile >> PA;
+        else if(str == "M")
+        {
+            infile >> M;
+            if(M == 0)
+                M = std::thread::hardware_concurrency();
+            std::cout << "Set to hardware concurrency: " << M << "\n";
+        }
+        else if(str == "MONTH")
+            infile >> MONTH;
+        else if(str == "PT")
+            infile >> PT;
+        else if(str == "POLL_SIZE")
+            infile >> POLL_SIZE;
+        else if(str == "N")
+        {
+            infile >> N;
+            for(int j=0; j<=N;j++)
+            {
+                getline(infile, str);
+                if(str.size() == 0)
+                    continue;
+                arr_st.push_back({str});
+            }
+        }
+    }
+    infile.close();
+
+    return arr_st;
+}
+
 // Работа с записью студента
 void work_with_student(Student& st, const int& month)
 {
@@ -143,14 +190,15 @@ void work_with_student(Student& st, const int& month)
     std::this_thread::sleep_for(std::chrono::milliseconds(PT)); // Пауза после обработки каждого элемента массива
 }
 
-// получить семафор ядра systemV
+// получить семафор ядра SysV IPC
 int get_sysv_sem(int num_sem, int sem_op, int flag)
 {
 
     key_t key = ftok(F_KEY.c_str(), 1);
     if(key == -1)
-        err_exit_sysV(("Cannot create key for System V IPC: " + F_KEY).c_str());
+        err_exit_sysV(("Cannot create key for SysV IPC: " + F_KEY).c_str());
 
+    // создать массив семафоров в ядре
     int semid = semget(key, num_sem, IPC_CREAT|0666);
     if(semid == -1)
         err_exit_sysV("Cannot create semaphores");
@@ -176,7 +224,7 @@ int get_sysv_sem(int num_sem, int sem_op, int flag)
     return semid;
 }
 
-// Семафор
+// Семафор ПЕТРИ
 class MySem{
     private:
         int count;
@@ -449,60 +497,9 @@ void serial_processing(std::vector<Student>& arr_st, int month)
     std::cout << "TL: " << std::chrono::duration_cast<std::chrono::milliseconds>(stop_time - start_time).count() << " msec." << std::endl;
 }
 
-// парсинг файла с входными данными
-std::vector<Student> load_and_set(std::string filename)
+
+int main(int argc, char* argv[])
 {
-    std::vector<Student> arr_st;
-    std::string str;
-
-    std::ifstream infile (filename);
-
-    if(!infile)
-    {
-        std::cout << "File cannot be opened: " << filename << "\n";
-        std::cout << "Error code: " <<  infile.rdstate() << "\n";
-        exit(-1);
-    }
-
-    while (!infile.eof())
-    {
-        srand(time(0));
-
-        infile >> str;
-        if(str == "PA")
-            infile >> PA;
-        else if(str == "M")
-        {
-            infile >> M;
-            if(M == 0)
-                M = std::thread::hardware_concurrency();
-            std::cout << "Set to hardware concurrency: " << M << "\n";
-        }
-        else if(str == "MONTH")
-            infile >> MONTH;
-        else if(str == "PT")
-            infile >> PT;
-        else if(str == "POLL_SIZE")
-            infile >> POLL_SIZE;
-        else if(str == "N")
-        {
-            infile >> N;
-            for(int j=0; j<=N;j++)
-            {
-                getline(infile, str);
-                if(str.size() == 0)
-                    continue;
-                arr_st.push_back({str});
-            }
-        }
-    }
-    infile.close();
-
-    return arr_st;
-}
-
-int main(int argc, char* argv[]){
-
     std::vector<Student> arr_st;
 
     if(argc == 1)
@@ -523,22 +520,22 @@ int main(int argc, char* argv[]){
 
     switch (PA)
     {
-    case 1:{
-        run_var1(arr_st, MONTH);
-        break;
-    }
-    case 2:{
-        run_var2(arr_st, MONTH);
-        break;
-    }
-    case 3:{
-        run_var3(arr_st, MONTH);
-        break;
-    }
-    case 4:{
-        run_var4(arr_st, MONTH);
-        break;
-    }
+        case 1:{
+            run_var1(arr_st, MONTH);
+            break;
+        }
+        case 2:{
+            run_var2(arr_st, MONTH);
+            break;
+        }
+        case 3:{
+            run_var3(arr_st, MONTH);
+            break;
+        }
+        case 4:{
+            run_var4(arr_st, MONTH);
+            break;
+        }
     }
 
     auto stop_time = std::chrono::steady_clock::now();
