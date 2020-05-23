@@ -502,10 +502,13 @@ int main(int argc, char* argv[])
 {
     std::vector<Student> arr_st;
 
-    if(argc == 1)
-        arr_st = load_and_set("config2.txt");
-    else
+    if(argc == 2)
         arr_st = load_and_set(argv[1]);
+    else
+    {
+        std::cout << "Unknown command-line options...\n";
+        exit(-1);
+    }
 
     if(PA > 4 or PA < 1)
     {
