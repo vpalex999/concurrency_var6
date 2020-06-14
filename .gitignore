@@ -3,3 +3,7 @@ env
 .mypy_*
 __pycache__
 a.out
+*.obj
+*.pdb
+*.exe
+*.ilk

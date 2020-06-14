@@ -36,16 +36,6 @@ PT - Пауза после обработки каждого элемента м
 
 */
 
-#include <errno.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/sem.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
-#include <pthread.h>
-#include <semaphore.h>
-#include <time.h>
-
 #include <string>
 #include <sstream>
 #include <iostream>
@@ -58,9 +48,6 @@ PT - Пауза после обработки каждого элемента м
 #include <fstream>
 
 
-#define err_exit_sysV(str){ perror(str); std::cerr << std::endl; exit(EXIT_FAILURE);}
-
-const std::string F_KEY = "sem.key";    // Файловый ключ для коммуникации процессов ядра в стандарте SysV IPC Unix
 int PA;         // способ обработки массива
 int MONTH;      // заданный месяц
 int N;          // размер массива элементов
@@ -374,7 +361,7 @@ int main(int argc, char* argv[])
         exit(-1);
     }
 
-    if(PA > 4 or PA < 1)
+    if(PA > 4 || PA < 1)
     {
         std::cout << "Selected the unknown variant PA = " << PA << "\n";
         std::cout << "Exit\n"; 
