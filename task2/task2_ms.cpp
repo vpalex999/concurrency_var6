@@ -36,6 +36,7 @@ PT - Пауза после обработки каждого элемента м
 
 */
 
+#include <Windows.h>
 #include <string>
 #include <sstream>
 #include <iostream>
@@ -253,6 +254,20 @@ class MySafeQueue
 };
 
 
+void thread_job_var1(std::vector<Student>& arr_st, std::vector<HANDLE>& hsem, int month)
+{
+    for(int j=0; j<N; j++)   // Для каждого элемента массива
+    {
+        DWORD dwWait = WaitForSingleObject(hsem[j], 0); // занять семафор элемента неблокируемым способом
+
+        if (dwWait != 0)
+            continue;   // семафор занят, идём дальше
+        else
+        {
+            work_with_student(arr_st[j], month);
+        }
+    }
+}
 
 void thread_job_var2(std::vector<Student>& arr_st, std::vector<MySem>& vsem, int month)
 {
@@ -291,6 +306,41 @@ void thread_job_var4(MySafeQueue& myqueue, int month)
 }
 
 // 1. При помощи массива из M потоков (M ≤ N), используя для синхронизации объект ядра – семафор.
+void run_var1(std::vector<Student>& arr_st, int month)
+{
+    std::cout << "Run case 1...\n";
+
+    std::vector<HANDLE> hSems;
+
+    for(int j=0; j < N; j++)
+    {
+        HANDLE hSemaphore = CreateSemaphore(NULL, 1, 1, NULL);
+        if(hSemaphore == NULL)
+        {
+            std::cout << "GetLastError: " << GetLastError() << std::endl;
+            throw GetLastError();
+        }
+        hSems.push_back(hSemaphore);
+    }
+
+
+    std::vector<std::thread> v_th;
+
+        for(int i=0; i<M; i++)
+        {
+            v_th.push_back(std::thread(thread_job_var1, std::ref(arr_st), std::ref(hSems), month));
+        }
+
+        for(auto& th: v_th)
+            th.join();
+
+    
+    for(int j=0; j < N; j++)
+    {
+        CloseHandle(hSems[j]);
+    }
+
+}
 
 // 2. При помощи массива из M потоков (M ≤ N), используя для синхронизации сеть Петри, моделирующую семафор.
 void run_var2(std::vector<Student>& arr_st, int month)
@@ -375,8 +425,8 @@ int main(int argc, char* argv[])
     switch (PA)
     {
         case 1:{
-            std::cout << "Not implemented yet.";
-            // run_var1(arr_st, MONTH);
+            // std::cout << "Not implemented yet.";
+            run_var1(arr_st, MONTH);
             break;
         }
         case 2:{
