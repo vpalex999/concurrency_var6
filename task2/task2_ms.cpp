@@ -54,10 +54,15 @@ int MONTH;      // заданный месяц
 int N;          // размер массива элементов
 int M;          // Количество параллельных потоков (если 0, то принимается равным числу процессорных ядер в системе)
 int PT;         //Пауза после обработки каждого элемента массива, мс
-int POLL_SIZE;  //размер пула потоков
 
 
 std::mutex mut_cout;
+
+struct SemaphoreException
+{
+    const char* what() const {return "SemaphoreException";}
+};
+
 
 // Структура Студент
 struct Student{
@@ -147,8 +152,6 @@ std::vector<Student> load_and_set(std::string filename)
             infile >> MONTH;
         else if(str == "PT")
             infile >> PT;
-        else if(str == "POLL_SIZE")
-            infile >> POLL_SIZE;
         else if(str == "N")
         {
             infile >> N;
@@ -180,23 +183,25 @@ void work_with_student(Student& st, const int& month)
 
 
 // Семафор ПЕТРИ
-class MySem{
+class SemaphorePetry{
     private:
         int count;
         mutable std::mutex mut;
     public:
-        MySem(){count = 1;}
-        MySem(MySem const&)=delete;   // конструктор копирования
-        MySem& operator=(MySem const&)=delete; // присваивание объекта
+        SemaphorePetry(){count = 1;}
+        SemaphorePetry(SemaphorePetry const&)=delete;   // блокировка конструктор копирования
+        SemaphorePetry& operator=(SemaphorePetry const&)=delete; // блокировка оператора присваивания объекта
 
-        int pos()       // увеличивает счётчик
+        void pos()       // увеличивает счётчик
         {
             std::lock_guard<std::mutex> lk(mut);
-            count++;
-            return 0;
+            if(count == 0)
+                count++;
+            else
+                throw SemaphoreException(); // особый случай, если счётчик уже увеличен
         }
 
-        int trywait()   // неблокированное уменьшение счётчика
+        int nowait()   // неблокированное уменьшение счётчика
         {
             std::lock_guard<std::mutex> lk(mut);
             if(count == 0)
@@ -208,11 +213,6 @@ class MySem{
             }
         }
 
-        int getvalue()  // получить значение счётчика
-        {
-            std::lock_guard<std::mutex> lk(mut);
-            return count;
-        } 
 };
 
 // безопасная очередь
@@ -224,12 +224,12 @@ class MySafeQueue
     public:
         std::atomic_bool is_done;
         MySafeQueue(){}
-        MySafeQueue(const std::vector<Student>& st){
+        MySafeQueue(const std::vector<Student>& st){    //  конструктор, инициализирует очередь списком студентов
             for(const auto& it: st)
                 arr_st.push_back(it);
         }
 
-        bool try_pop(Student& st)   // неблокирующее получение элемента очереди
+        bool try_pop(Student& st)   // неблокирующее получение элемента очереди через ссылку
         {
             std::lock_guard<std::mutex> lk(mut);
             if(arr_st.empty())
@@ -269,11 +269,11 @@ void thread_job_var1(std::vector<Student>& arr_st, std::vector<HANDLE>& hsem, in
     }
 }
 
-void thread_job_var2(std::vector<Student>& arr_st, std::vector<MySem>& vsem, int month)
+void thread_job_var2(std::vector<Student>& arr_st, std::vector<SemaphorePetry>& vsem, int month)
 {
     for(int j=0; j<N; j++)   // Для каждого элемента массива
     {
-        int stat_sem = vsem[j].trywait();   // занять семафор элемента неблокируемым способом
+        int stat_sem = vsem[j].nowait();   // занять семафор элемента неблокируемым способом
 
         if(stat_sem == -1)  
             continue;   // семафор занят, идём дальше
@@ -287,21 +287,24 @@ void thread_job_var2(std::vector<Student>& arr_st, std::vector<MySem>& vsem, int
 
 void thread_job_var4(MySafeQueue& myqueue, int month)
 {   
+
+    // std::unique_lock<std::mutex> lk(mut_cout);   // авто-блокировка потока вывода
+    // std::cout << std::this_thread::get_id() << ": go to job\n";    // вывод информации на консоль
+    // lk.unlock();
+
     while(true)
     {
-        // Проверка на завершение работы потока
+        // если очередь пуста
         if(myqueue.empty())
-            return;
+            return; // завершаем работу потока
         
-        Student st;
-        if(myqueue.try_pop(st)) // неблокируемый доступ к очереди
+        Student st;     // подготовить структуру
+        if(myqueue.try_pop(st)) // активация перехода неблокируемым доступом
         {
-            work_with_student(st, month);
+            // переход сработал, получили, обрабатываемую структуру
+            work_with_student(st, month);   
         }
-        else
-        {
-            std::this_thread::yield();  // заснуть
-        }
+
     }
 }
 
@@ -347,7 +350,7 @@ void run_var2(std::vector<Student>& arr_st, int month)
 {
     std::cout << "Run case 2...\n";
 
-    std::vector<MySem> vsem(N);
+    std::vector<SemaphorePetry> vsem(N); 
 
     std::vector<std::thread> v_th;
 
@@ -365,23 +368,19 @@ void run_var4(std::vector<Student>& arr_st, int month)
 {
     std::cout << "Run case 4...\n";
 
-    MySafeQueue myqueue;
+    MySafeQueue myqueue(arr_st);    // инициализация очереди
 
-    // заполнение очереди
-    for(const auto stud:arr_st)
-        myqueue.push(stud);
+    std::vector<std::thread> v_th;  // объявить массив потоков
 
-    std::vector<std::thread> v_th;
-
+    // Каждому потоку дать задачу
     for(int j=0; j<M; j++)
     {
         v_th.push_back(std::thread(thread_job_var4, std::ref(myqueue), month));
     }
 
 
-    myqueue.is_done = true;
-
-    for(auto& th: v_th)
+    // ждём завершения работы каждого потока
+    for(auto& th: v_th) 
         th.join();
 }
 

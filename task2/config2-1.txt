@@ -2,7 +2,6 @@ PA 1
 M 8
 MONTH 3
 PT 1000
-POLL_SIZE 8
 N 8
 student1,c-171,,,,
 student2,c-172,,,,
